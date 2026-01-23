@@ -1,0 +1,50 @@
+name: Release Tracker
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            tracker.js
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          name: Release ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## Universal Tracker ${{ steps.get_version.outputs.VERSION }}
+            
+            See [README.md](README.md) for installation instructions.
+            
+            CDN URL:
+            ```
+            https://cdn.jsdelivr.net/gh/wilmerx5/conversioniq-universal@${{ steps.get_version.outputs.VERSION }}/tracker.js
+            ```
+            
+            **CDN URL para usar en tu código:**
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Output CDN URLs
+        run: |
+          echo "✅ Release created: ${{ steps.get_version.outputs.VERSION }}"
+          echo ""
+          echo "CDN URLs:"
+          echo "Latest: https://cdn.jsdelivr.net/gh/wilmerx5/conversioniq-universal@latest/tracker.js"
+          echo "Versioned: https://cdn.jsdelivr.net/gh/wilmerx5/conversioniq-universal@${{ steps.get_version.outputs.VERSION }}/tracker.js"
+          echo ""
+          echo "✅ CDN listo para usar!"

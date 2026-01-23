@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ejemplo HTML Estático - WP Conversion Monitor</title>
+  
+  <!-- WP Conversion Monitor Tracker -->
+  <script 
+    src="../tracker.js"
+    data-api-key="wpcm_tu_api_key_aqui">
+  </script>
+</head>
+<body>
+  <header>
+    <h1>Mi Sitio Web</h1>
+    <nav>
+      <a href="#home">Inicio</a>
+      <a href="#about">Acerca</a>
+      <a href="#contact">Contacto</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="home">
+      <h2>Bienvenido</h2>
+      <p>Este es un ejemplo de sitio HTML estático con WP Conversion Monitor.</p>
+      <button onclick="alert('Click tracked!')">Botón de Ejemplo</button>
+    </section>
+
+    <section id="about">
+      <h2>Acerca de Nosotros</h2>
+      <p>Contenido de ejemplo para tracking de scroll.</p>
+      <div style="height: 2000px; padding: 20px;">
+        <p>Desplázate hacia abajo para ver el tracking de scroll funcionando.</p>
+        <p style="margin-top: 500px;">25% de scroll alcanzado</p>
+        <p style="margin-top: 500px;">50% de scroll alcanzado</p>
+        <p style="margin-top: 500px;">75% de scroll alcanzado</p>
+        <p style="margin-top: 500px;">100% de scroll alcanzado</p>
+      </div>
+    </section>
+
+    <section id="contact">
+      <h2>Contacto</h2>
+      <form id="contact-form">
+        <div>
+          <label for="name">Nombre:</label>
+          <input type="text" id="name" name="name" required>
+        </div>
+        <div>
+          <label for="email">Email:</label>
+          <input type="email" id="email" name="email" required>
+        </div>
+        <div>
+          <label for="message">Mensaje:</label>
+          <textarea id="message" name="message" rows="4" required></textarea>
+        </div>
+        <button type="submit">Enviar</button>
+      </form>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2024 Mi Sitio Web</p>
+  </footer>
+
+  <script>
+    // Prevenir envío real del formulario (solo para ejemplo)
+    document.getElementById('contact-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      alert('Formulario enviado (tracking funcionando)');
+    });
+  </script>
+</body>
+</html>
