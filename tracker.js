@@ -540,10 +540,10 @@
       return false;
     }
 
-    // Log event registration
-    if (typeof console !== 'undefined' && console.log) {
-      console.log('registrando evento w.w', payload.eventType, payload);
-    }
+    // // Log event registration
+    // if (typeof console !== 'undefined' && console.log) {
+    //   console.log('registrando evento w.w', payload.eventType, payload);
+    // }
 
     // Prepare headers with authentication
     const headers = {
