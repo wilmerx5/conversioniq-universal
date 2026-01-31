@@ -1,8 +1,8 @@
 /**
  * ConversionIQ - Universal Tracking Script
- * Version: 1.0.0
- * Works on any website (WordPress, static HTML, React, Vue, etc.)
- * Tracks page views, clicks, scroll depth, and form interactions
+ * Version: 1.1.0
+ * Works on any website (WordPress, static HTML, React, Vue, Next.js, etc.)
+ * Tracks page views, clicks, scroll depth, form interactions, and checkout events
  */
 (function () {
   'use strict';
@@ -68,6 +68,447 @@
 
   // Track if we've already sent events to prevent duplicates
   const sentEvents = new Set();
+
+  // ============================================
+  // CHECKOUT TRACKING
+  // Comprehensive checkout detection for Next.js, React, and other SPA frameworks
+  // ============================================
+  const checkoutTracking = {
+    activeCheckouts: new Map(), // checkoutId -> { startTime, checkoutPath, method }
+    completedCheckouts: new Set(), // Track completed to prevent duplicates
+    lastPath: location.pathname,
+  };
+
+  /**
+   * Check if current path is a checkout page
+   * @param {string} path - URL path
+   * @returns {boolean}
+   */
+  function isCheckoutPage(path) {
+    if (!path) return false;
+    const lowerPath = path.toLowerCase();
+    const checkoutPatterns = [
+      /\/checkout/,
+      /\/cart/,
+      /\/carrito/,
+      /\/pagar/,
+      /\/payment/,
+      /\/pago/,
+      /\/order/,
+      /\/orden/,
+      /\/buy/,
+      /\/comprar/,
+      /\/purchase/,
+      /\/compra/,
+    ];
+    return checkoutPatterns.some(pattern => pattern.test(lowerPath));
+  }
+
+  /**
+   * Check if current path is a success/confirmation page
+   * @param {string} path - URL path
+   * @returns {boolean}
+   */
+  function isSuccessPage(path) {
+    if (!path) return false;
+    const lowerPath = path.toLowerCase();
+    const successPatterns = [
+      /\/success/,
+      /\/exito/,
+      /\/thank.?you/,
+      /\/gracias/,
+      /\/confirmation/,
+      /\/confirmacion/,
+      /\/order-confirmed/,
+      /\/orden-confirmada/,
+      /\/complete/,
+      /\/completado/,
+      /\/done/,
+      /\/finalizado/,
+    ];
+    return successPatterns.some(pattern => pattern.test(lowerPath));
+  }
+
+  /**
+   * Check DOM for success indicators
+   * @returns {boolean}
+   */
+  function detectSuccessInDOM() {
+    // Common success indicators
+    const successSelectors = [
+      '[class*="success"]',
+      '[class*="complete"]',
+      '[class*="confirmed"]',
+      '[id*="success"]',
+      '[id*="complete"]',
+      '[id*="confirmed"]',
+      '[data-status="success"]',
+      '[data-status="complete"]',
+      '[data-status="confirmed"]',
+      '.order-confirmation',
+      '.checkout-success',
+      '.payment-success',
+      '[aria-label*="success" i]',
+      '[aria-label*="complete" i]',
+    ];
+
+    for (const selector of successSelectors) {
+      try {
+        const elements = document.querySelectorAll(selector);
+        for (const el of elements) {
+          const text = (el.textContent || '').toLowerCase();
+          if (text.includes('success') || text.includes('complete') || 
+              text.includes('confirmed') || text.includes('order') ||
+              text.includes('exito') || text.includes('completado') ||
+              text.includes('confirmado') || text.includes('orden')) {
+            return true;
+          }
+        }
+      } catch (e) {
+        // Invalid selector, continue
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check localStorage/sessionStorage for order data
+   * @returns {boolean}
+   */
+  function detectOrderInStorage() {
+    try {
+      const keys = [];
+      // Check localStorage
+      for (let i = 0; i < localStorage.length; i++) {
+        keys.push(localStorage.key(i));
+      }
+      // Check sessionStorage
+      for (let i = 0; i < sessionStorage.length; i++) {
+        keys.push(sessionStorage.key(i));
+      }
+
+      const orderIndicators = keys.filter(key => {
+        const lowerKey = key.toLowerCase();
+        return lowerKey.includes('order') || lowerKey.includes('orden') ||
+               lowerKey.includes('checkout') || lowerKey.includes('purchase') ||
+               lowerKey.includes('compra') || lowerKey.includes('transaction');
+      });
+
+      if (orderIndicators.length > 0) {
+        // Check if any contains actual order data
+        for (const key of orderIndicators) {
+          try {
+            const value = localStorage.getItem(key) || sessionStorage.getItem(key);
+            if (value && (value.includes('id') || value.includes('status') || value.includes('total'))) {
+              return true;
+            }
+          } catch (e) {
+            // Continue
+          }
+        }
+      }
+    } catch (e) {
+      // Storage not available
+    }
+    return false;
+  }
+
+  /**
+   * Track checkout activation
+   * @param {string} checkoutPath - Path where checkout was activated
+   * @param {string} method - How checkout was detected ('url', 'form', 'click', 'custom')
+   */
+  function trackCheckoutActivation(checkoutPath, method = 'url') {
+    const checkoutId = `checkout-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    
+    // Prevent duplicate activations for same path within short time
+    const recentActivation = Array.from(checkoutTracking.activeCheckouts.values())
+      .find(c => c.checkoutPath === checkoutPath && (Date.now() - c.startTime) < 5000);
+    
+    if (recentActivation) {
+      return; // Already tracked recently
+    }
+
+    checkoutTracking.activeCheckouts.set(checkoutId, {
+      startTime: Date.now(),
+      checkoutPath: checkoutPath,
+      method: method,
+    });
+
+    send({
+      eventId: eventId('checkout-activate'),
+      eventType: 'checkout_activate',
+      occurredAt: new Date().toISOString(),
+      page: {
+        path: checkoutPath,
+        title: document.title,
+      },
+      checkout: {
+        checkoutId: checkoutId,
+        method: method,
+      },
+    });
+  }
+
+  /**
+   * Track checkout completion
+   * @param {string} successPath - Path where completion was detected
+   * @param {string} method - How completion was detected
+   * @param {string} checkoutId - Optional specific checkout ID
+   */
+  function trackCheckoutCompletion(successPath, method = 'url', checkoutId = null) {
+    // Prevent duplicate completions
+    const completionKey = `${successPath}-${Date.now()}`;
+    if (checkoutTracking.completedCheckouts.has(completionKey)) {
+      return;
+    }
+    checkoutTracking.completedCheckouts.add(completionKey);
+
+    // Find matching active checkout
+    let activeCheckout = null;
+    if (checkoutId && checkoutTracking.activeCheckouts.has(checkoutId)) {
+      activeCheckout = checkoutTracking.activeCheckouts.get(checkoutId);
+    } else {
+      // Find most recent active checkout
+      const activeCheckouts = Array.from(checkoutTracking.activeCheckouts.entries())
+        .sort((a, b) => b[1].startTime - a[1].startTime);
+      if (activeCheckouts.length > 0) {
+        activeCheckout = { id: activeCheckouts[0][0], ...activeCheckouts[0][1] };
+      }
+    }
+
+    const timeToComplete = activeCheckout
+      ? Math.max(1, Math.round((Date.now() - activeCheckout.startTime) / 1000))
+      : null;
+
+    send({
+      eventId: eventId('checkout-complete'),
+      eventType: 'checkout_complete',
+      occurredAt: new Date().toISOString(),
+      page: {
+        path: successPath,
+        title: document.title,
+      },
+      checkout: {
+        checkoutId: activeCheckout?.id || 'unknown',
+        method: method,
+        timeToComplete: timeToComplete,
+        checkoutPath: activeCheckout?.checkoutPath || null,
+      },
+    });
+
+    // Cleanup active checkout
+    if (activeCheckout && activeCheckout.id) {
+      checkoutTracking.activeCheckouts.delete(activeCheckout.id);
+    }
+  }
+
+  /**
+   * Check for checkout completion using all available methods
+   */
+  function checkForCheckoutCompletion() {
+    const currentPath = location.pathname;
+
+    // Method 1: URL-based detection (success page)
+    if (isSuccessPage(currentPath)) {
+      trackCheckoutCompletion(currentPath, 'url');
+      return;
+    }
+
+    // Method 2: DOM-based detection
+    if (detectSuccessInDOM()) {
+      trackCheckoutCompletion(currentPath, 'dom');
+      return;
+    }
+
+    // Method 3: Storage-based detection
+    if (detectOrderInStorage()) {
+      trackCheckoutCompletion(currentPath, 'storage');
+      return;
+    }
+  }
+
+  // Track checkout activation on checkout pages
+  if (isCheckoutPage(location.pathname)) {
+    trackCheckoutActivation(location.pathname, 'url');
+  }
+
+  // Monitor URL changes (for SPAs like Next.js, React Router, etc.)
+  let urlCheckInterval = null;
+  function startUrlMonitoring() {
+    // Check URL changes periodically (for SPAs)
+    urlCheckInterval = setInterval(() => {
+      const currentPath = location.pathname;
+      
+      // Detect checkout activation
+      if (isCheckoutPage(currentPath) && currentPath !== checkoutTracking.lastPath) {
+        trackCheckoutActivation(currentPath, 'url');
+      }
+      
+      // Detect checkout completion
+      if (currentPath !== checkoutTracking.lastPath) {
+        checkForCheckoutCompletion();
+        checkoutTracking.lastPath = currentPath;
+      }
+    }, 500); // Check every 500ms
+
+    // Also use popstate for browser navigation
+    window.addEventListener('popstate', () => {
+      const currentPath = location.pathname;
+      if (isCheckoutPage(currentPath)) {
+        trackCheckoutActivation(currentPath, 'url');
+      }
+      checkForCheckoutCompletion();
+      checkoutTracking.lastPath = currentPath;
+    });
+  }
+
+  // Listen for Next.js router events (if available)
+  if (typeof window !== 'undefined' && window.next && window.next.router) {
+    const router = window.next.router;
+    if (router.events) {
+      router.events.on('routeChangeComplete', (url) => {
+        const path = new URL(url, location.origin).pathname;
+        if (isCheckoutPage(path)) {
+          trackCheckoutActivation(path, 'nextjs-router');
+        }
+        if (isSuccessPage(path) || isCheckoutPage(checkoutTracking.lastPath)) {
+          checkForCheckoutCompletion();
+        }
+        checkoutTracking.lastPath = path;
+      });
+    }
+  }
+
+  // Listen for custom checkout events
+  window.addEventListener('checkout:activate', (e) => {
+    const path = e.detail?.path || location.pathname;
+    trackCheckoutActivation(path, 'custom-event');
+  });
+
+  window.addEventListener('checkout:complete', (e) => {
+    const path = e.detail?.path || location.pathname;
+    const checkoutId = e.detail?.checkoutId || null;
+    trackCheckoutCompletion(path, 'custom-event', checkoutId);
+  });
+
+  window.addEventListener('order:complete', (e) => {
+    const path = e.detail?.path || location.pathname;
+    trackCheckoutCompletion(path, 'custom-event');
+  });
+
+  window.addEventListener('purchase:complete', (e) => {
+    const path = e.detail?.path || location.pathname;
+    trackCheckoutCompletion(path, 'custom-event');
+  });
+
+  // Track checkout form submissions
+  document.addEventListener('submit', (e) => {
+    if (!e.target || e.target.tagName !== 'FORM') return;
+    
+    const form = e.target;
+    const formPath = location.pathname;
+    
+    // Check if form is on checkout page or has checkout-related classes/ids
+    const formId = (form.id || '').toLowerCase();
+    const formClass = (form.className || '').toLowerCase();
+    const formAction = (form.action || '').toLowerCase();
+    
+    const isCheckoutForm = isCheckoutPage(formPath) ||
+      formId.includes('checkout') || formId.includes('cart') || formId.includes('payment') ||
+      formClass.includes('checkout') || formClass.includes('cart') || formClass.includes('payment') ||
+      formAction.includes('checkout') || formAction.includes('cart') || formAction.includes('payment');
+    
+    if (isCheckoutForm) {
+      // Track activation if not already tracked
+      if (!isCheckoutPage(formPath)) {
+        trackCheckoutActivation(formPath, 'form');
+      }
+      
+      // Wait a bit then check for completion (form might redirect or show success)
+      setTimeout(() => {
+        checkForCheckoutCompletion();
+      }, 1000);
+    }
+  }, true);
+
+  // Track clicks on checkout/purchase buttons
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('button, a, [role="button"]');
+    if (!el) return;
+
+    const text = (el.textContent || '').toLowerCase();
+    const id = (el.id || '').toLowerCase();
+    const className = (el.className || '').toLowerCase();
+    const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+    
+    const isCheckoutButton = 
+      text.includes('checkout') || text.includes('pagar') || text.includes('comprar') ||
+      text.includes('buy now') || text.includes('purchase') || text.includes('order') ||
+      id.includes('checkout') || id.includes('purchase') || id.includes('buy') ||
+      className.includes('checkout') || className.includes('purchase') || className.includes('buy') ||
+      ariaLabel.includes('checkout') || ariaLabel.includes('purchase') || ariaLabel.includes('buy');
+
+    if (isCheckoutButton) {
+      const currentPath = location.pathname;
+      trackCheckoutActivation(currentPath, 'click');
+      
+      // Also check for completion after a delay (in case it's instant)
+      setTimeout(() => {
+        checkForCheckoutCompletion();
+      }, 2000);
+    }
+  }, true);
+
+  // Monitor DOM for success messages (MutationObserver)
+  const successObserver = new MutationObserver(() => {
+    if (checkoutTracking.activeCheckouts.size > 0) {
+      checkForCheckoutCompletion();
+    }
+  });
+
+  // Start monitoring after DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      startUrlMonitoring();
+      successObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'id', 'data-status'],
+      });
+      // Initial check
+      checkForCheckoutCompletion();
+    });
+  } else {
+    startUrlMonitoring();
+    successObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'id', 'data-status'],
+    });
+    // Initial check
+    checkForCheckoutCompletion();
+  }
+
+  // Periodic check for completion (fallback)
+  setInterval(() => {
+    if (checkoutTracking.activeCheckouts.size > 0) {
+      checkForCheckoutCompletion();
+    }
+  }, 3000); // Check every 3 seconds
+
+  // Cleanup old active checkouts (prevent memory leak)
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, data] of checkoutTracking.activeCheckouts.entries()) {
+      // Remove checkouts older than 1 hour
+      if (now - data.startTime > 3600000) {
+        checkoutTracking.activeCheckouts.delete(id);
+      }
+    }
+  }, 60000); // Check every minute
 
   // ============================================
   // EVENT SENDING
